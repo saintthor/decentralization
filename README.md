@@ -3,7 +3,8 @@ Real decentralization. Better than all PoW public blockchains.
 
 [The Chinese document](http://acc.guideep.com) is recommanded.
 
-## Summary
+## Technology
+### Summary
 
 The ownership blockchains can offer full decentralization and good scalability for cryptocurrencies. 
 
@@ -16,7 +17,7 @@ We remember, the banknote-based currencies work much better. They are efficient,
 This is obviously not a good idea. Physical banknotes can not be transferred online and can not be guaranteed to be unique. Instead, we can make banknotes by the ownership blockchains. Each blockchain for one banknote.
 
 
-## The banknotes
+### The banknotes
 
 An ownership blockchain is private. It has an owner and only the owner can add blocks. Blocks added on a private blockchain do not require a consensus algorithm.
 
@@ -29,7 +30,7 @@ Every ownership blockchain can record the history of its ownership well. It is e
 Like a physical banknote, every Ownership Blockchain Banknote(OBB) has a fixed denomination, which never changes in payments. The payer selects some OBBs from his, makes up the amount to be paid, transfers the selected OBBs to the payee, and the payment is completed.
 
 
-## Security
+### Security
 
 An ownership blockchain could be forked if the current owner adds multiple blocks at the same location. This is clearly a violation. We have three methods to deal with it.
 
@@ -46,8 +47,13 @@ We never make decisions through any forms of voting to avoid Sybil Attacks. All 
 We can guarantee each OBB to be unique by setting the Id to a signature of the inherent information.
 
 
-## Grouping
+### Grouping
 
 For security reasons, we have to broadcast every block immediately. It may cause performance problems when the network grows large. We may solve it by grouping.
 
 Randomly divide the OBBs into multiple groups. Each user may join some groups and try to use the OBBs in the groups first. New blocks are broadcast only to the users in the group of the OBB. If two users have frequent transactions, they should join the same group and pay by the banknotes in the common group for security and performance.
+
+## Repo
+This repo is for educational and demonstration purposes.
+
+There are two license files. The main file is the BSD 2-Clause License, and the other describes the details of the patent licenses.
