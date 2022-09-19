@@ -1,19 +1,97 @@
+function ABuff2Base64( ab )
+{
+    return btoa( String.fromCharCode( ...new Uint8Array( ab )));
+}
+
+function Base642ABuff( b64 )
+{
+    let s = atob( b64 );
+    let ua8 = new Uint8Array( s.length );
+    for( let l = s.length; l-- > 0; )
+    {
+        ua8[l] = s.charCodeAt( l );
+    }
+    return ua8;
+}
+
+function UA2Str( ua )
+{
+    let Rslt = '';
+    let len = ua.length;
+
+    for( let i = 0; i < len; i++ )
+    {
+        let char = ua[i]
+        let high = char >> 4;
+        if( high < 8 )
+        {
+            Rslt += String.fromCharCode( char );
+        }
+        else if( high === 12 || high === 13 )
+        {
+            let char2 = ua[++i] & 0x3F;
+            Rslt += String.fromCharCode((( char & 0x1F ) << 6 ) | char2 );
+        }
+        else if( high === 14 )
+        {
+            let char2 = ua[++i] & 0x3F;
+            let char3 = ua[++i] & 0x3F;
+            Rslt += String.fromCharCode((( char & 0x0F ) << 12 ) | ( char2 << 6 ) | char3 );
+        }
+    }
+    return Rslt;
+}
+
+function Xor( ab0, ab1 )
+{
+    let ua0 = new Uint8Array( ab0 );
+    let ua1 = new Uint8Array( ab1 );
+    for( let i = 0; i < ab0.byteLength; i++ )
+    {
+        ua0[i] ^= ua1[i];
+    }
+    return ua0;
+}
+
+async function Hash( raw, hashName, times )
+{
+    times = times || 1
+    let ua = typeof raw === 'string' ? new TextEncoder( 'utf8' ).encode( raw ) : raw;
+    for( ; times-- > 0; )
+    {
+        ua = await crypto.subtle.digest( { name: hashName }, ua );
+    }
+    return ua
+}
+
 class User
 {
-    constructor( name, pswd )
+    constructor( name, pswd, keys )
     {
         this.Name = name;
         this.OwnChains = new Map();
         this.LocalBlocks = {};
         this.BlackList = [];
+        this.Peers = new Map();
         let me = this;
         return ( async () =>
         {
-            let key = await crypto.subtle.generateKey( { name: "ECDSA", namedCurve: "P-256", }, true, ["sign", "verify"] );
-            let raw = await crypto.subtle.exportKey( "raw", key.publicKey );
-            me.PubKey = key.publicKey;
-            me.PriKey = key.privateKey;
-            me.PubKeyStr = ABuff2Base64( raw );
+            if( keys )  //load
+            {
+                me.PubKeyStr = keys.public;
+                me.PubKey = await crypto.subtle.importKey( "raw", Base642ABuff( keys.public ),
+                                    { name: "ECDSA", namedCurve: "P-256", }, false, ["verify"]);
+                me.PriKey = await crypto.subtle.importKey( "jwk", keys.private,
+                                    { name: "ECDSA", namedCurve: "P-256", }, false, ["sign"] );
+            }
+            else        //new
+            {
+                let key = await crypto.subtle.generateKey( { name: "ECDSA", namedCurve: "P-256", }, true, ["sign", "verify"] );
+                let raw = await crypto.subtle.exportKey( "raw", key.publicKey );
+                me.PubKey = key.publicKey;
+                me.PriKey = key.privateKey;
+                me.PubKeyStr = ABuff2Base64( raw );
+            }
             return me;
         } )();
     };
@@ -23,8 +101,8 @@ class User
     async Sign( s, pswd )
     {
         let ua8 = Base642ABuff( s );
-        return await crypto.subtle.sign( { name: "ECDSA", hash: { name: "SHA-1" }, },
-                                    this.PriKey, ua8 );
+        let sign = await crypto.subtle.sign( { name: "ECDSA", hash: { name: "SHA-1" }, }, this.PriKey, ua8 );
+        return ABuff2Base64( sign );
     };
 
     static async Verify( sig, data, pubKeyS )
@@ -33,6 +111,47 @@ class User
         let pubK = await crypto.subtle.importKey( "raw", Base642ABuff( pubKeyS ),
                                 { name: "ECDSA", namedCurve: "P-256", }, false, ["verify"] )
         return crypto.subtle.verify( { name: "ECDSA", hash: { name: "SHA-1" }, }, pubK, Base642ABuff( sig ), data );
+    };
+
+    static async Open( pubKeyS, pswd, name )
+    {
+        let h512 = await Hash( pswd, 'SHA-512' );
+        let Suffix = pubKeyS.replace( /[\+\=\/]/g, '' ).slice( 0, 12 );
+        let UserKData = JSON.parse( localStorage.getItem( 'UserK_' + Suffix ));
+        let CBCKey = await crypto.subtle.importKey( 'raw', h512.slice( 0, 32 ), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey'] )
+                        .then( k => crypto.subtle.deriveKey( { "name": 'PBKDF2', "salt": h512.slice( 32, 48 ),
+                                    "iterations": 60000, "hash": 'SHA-256' }, k,
+                                    { "name": 'AES-CBC', "length": 256 }, true, ["encrypt", "decrypt"] ))
+        let Encrypted = Base642ABuff( UserKData.UserKey );
+        let Buffer = await crypto.subtle.decrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Encrypted );
+        console.log( Buffer );
+        let Keys = JSON.parse( UA2Str( new Uint8Array( Buffer )));
+
+        console.log( Keys );
+        return new User( name, '' , Keys );
+    };
+
+    async Save( pswd, key ) // BFNefIGd2crl  BOcqKh2jxfcM
+    {
+        let h512 = await Hash( pswd, 'SHA-512' );
+        let Suffix = ( key || this.PubKeyStr ).replace( /[\+\=\/]/g, '' ).slice( 0, 12 );
+        let CBCKey = await crypto.subtle.importKey( 'raw', h512.slice( 0, 32 ), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey'] )
+                        .then( k => crypto.subtle.deriveKey( { "name": 'PBKDF2', "salt": h512.slice( 32, 48 ),
+                                    "iterations": 60000, "hash": 'SHA-256' }, k,
+                                    { "name": 'AES-CBC', "length": 256 }, true, ["encrypt", "decrypt"] ))
+        let ExPrivKey = await crypto.subtle.exportKey( "jwk", this.PriKey );
+        let Buffer = new TextEncoder( 'utf8' ).encode( JSON.stringify( { 'private': ExPrivKey, 'public': this.PubKeyStr } ));
+        let Encrypted = await crypto.subtle.encrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Buffer );
+
+        localStorage['UserK_' + Suffix] = ABuff2Base64( Encrypted );
+        return Suffix;
+    };
+
+    async CreateBlock( parentIdx, data, parentId )
+    {
+        let block = await new Block( parentIdx + 1, data, parentId );
+        block.Id = await this.Sign( block.Hash );
+        return block;
     };
 
     FindRoot( blockId )

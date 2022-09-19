@@ -10,12 +10,16 @@ class Peer
     AddUser( u )
     {
         this.Users.set( u.Id, u );
-        u.Peer = this;
+        u.Peers.set( this.Id, this );
     };
 
     DelUser( userId )
     {
-        return this.Users.delete( userId );
+        if( this.Users.has( userId ))
+        {
+            this.Users.get( userId ).Peers.delete( this.Id );
+            this.Users.delete( userId );
+        }
     };
 
     AddNeighbors( neighbors )
