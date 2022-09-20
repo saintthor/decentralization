@@ -117,21 +117,18 @@ class User
     {
         let h512 = await Hash( pswd, 'SHA-512' );
         let Suffix = pubKeyS.replace( /[\+\=\/]/g, '' ).slice( 0, 12 );
-        let UserKData = JSON.parse( localStorage.getItem( 'UserK_' + Suffix ));
+        let Encrypted = Base642ABuff( localStorage.getItem( 'UserK_' + Suffix ));
         let CBCKey = await crypto.subtle.importKey( 'raw', h512.slice( 0, 32 ), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey'] )
                         .then( k => crypto.subtle.deriveKey( { "name": 'PBKDF2', "salt": h512.slice( 32, 48 ),
                                     "iterations": 60000, "hash": 'SHA-256' }, k,
                                     { "name": 'AES-CBC', "length": 256 }, true, ["encrypt", "decrypt"] ))
-        let Encrypted = Base642ABuff( UserKData.UserKey );
         let Buffer = await crypto.subtle.decrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Encrypted );
-        console.log( Buffer );
         let Keys = JSON.parse( UA2Str( new Uint8Array( Buffer )));
 
-        console.log( Keys );
         return new User( name, '' , Keys );
     };
 
-    async Save( pswd, key ) // BFNefIGd2crl  BOcqKh2jxfcM
+    async Save( pswd, key )
     {
         let h512 = await Hash( pswd, 'SHA-512' );
         let Suffix = ( key || this.PubKeyStr ).replace( /[\+\=\/]/g, '' ).slice( 0, 12 );
@@ -191,7 +188,6 @@ class User
             if( !this.ChkTail( PrevBlock ))
             {
                 this.BlackList.push( PrevLines[3] );
-                //let BlackName = V.GetUser( PrevLines[3] ).Name;
                 if( this.Id != PrevLines[3] )
                 {
                     throw "double spending."
@@ -203,7 +199,6 @@ class User
         let RecvBlock = new Block( block.Index, 0, 0, block.Id, block.Content );
         if( block.Content[0] === '0' )
         {
-            //console.log( 'recv new root', Lines[3], this.Id );
             if( !await RecvBlock.ChkRoot())
             {
                 throw "verify failed.";
@@ -234,9 +229,7 @@ class User
         }
         else
         {
-            //console.log( Root.Id, this.OwnChains );
             this.OwnChains.delete( Root.Id );
-            //console.log( this.OwnChains.length );
         }
     };
 
