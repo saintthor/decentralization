@@ -1,3 +1,6 @@
+const HASH_TIMES = 9999;
+const CBC_ITERATIONS = 60000;
+
 function ABuff2Base64( ab )
 {
     return btoa( String.fromCharCode( ...new Uint8Array( ab )));
@@ -66,9 +69,8 @@ async function Hash( raw, hashName, times )
 
 class User
 {
-    constructor( name, pswd, keys )
+    constructor( keys )
     {
-        this.Name = name;
         this.OwnChains = new Map();
         this.LocalBlocks = {};
         this.BlackList = [];
@@ -76,7 +78,7 @@ class User
         let me = this;
         return ( async () =>
         {
-            if( keys )  //load
+            if( keys )  //load user from imported keys.
             {
                 me.PubKeyStr = keys.public;
                 me.PubKey = await crypto.subtle.importKey( "raw", Base642ABuff( keys.public ),
@@ -113,35 +115,30 @@ class User
         return crypto.subtle.verify( { name: "ECDSA", hash: { name: "SHA-1" }, }, pubK, Base642ABuff( sig ), data );
     };
 
-    static async Open( pubKeyS, pswd, name )
+    static async Import( pswd, encrypted )    //import a key pair to create a user.
     {
-        let h512 = await Hash( pswd, 'SHA-512' );
-        let Suffix = pubKeyS.replace( /[\+\=\/]/g, '' ).slice( 0, 12 );
-        let Encrypted = Base642ABuff( localStorage.getItem( 'UserK_' + Suffix ));
+        let h512 = await Hash( pswd, 'SHA-512', HASH_TIMES );
         let CBCKey = await crypto.subtle.importKey( 'raw', h512.slice( 0, 32 ), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey'] )
                         .then( k => crypto.subtle.deriveKey( { "name": 'PBKDF2', "salt": h512.slice( 32, 48 ),
-                                    "iterations": 60000, "hash": 'SHA-256' }, k,
+                                    "iterations": CBC_ITERATIONS, "hash": 'SHA-256' }, k,
                                     { "name": 'AES-CBC', "length": 256 }, true, ["encrypt", "decrypt"] ))
-        let Buffer = await crypto.subtle.decrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Encrypted );
+        let Buffer = await crypto.subtle.decrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Base642ABuff( encrypted ));
         let Keys = JSON.parse( UA2Str( new Uint8Array( Buffer )));
 
-        return new User( name, '' , Keys );
+        return await new User( Keys );
     };
 
-    async Save( pswd, key )
+    async Export( pswd )    //export the key pair.
     {
-        let h512 = await Hash( pswd, 'SHA-512' );
-        let Suffix = ( key || this.PubKeyStr ).replace( /[\+\=\/]/g, '' ).slice( 0, 12 );
+        let h512 = await Hash( pswd, 'SHA-512', HASH_TIMES );
         let CBCKey = await crypto.subtle.importKey( 'raw', h512.slice( 0, 32 ), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey'] )
                         .then( k => crypto.subtle.deriveKey( { "name": 'PBKDF2', "salt": h512.slice( 32, 48 ),
-                                    "iterations": 60000, "hash": 'SHA-256' }, k,
+                                    "iterations": CBC_ITERATIONS, "hash": 'SHA-256' }, k,
                                     { "name": 'AES-CBC', "length": 256 }, true, ["encrypt", "decrypt"] ))
         let ExPrivKey = await crypto.subtle.exportKey( "jwk", this.PriKey );
         let Buffer = new TextEncoder( 'utf8' ).encode( JSON.stringify( { 'private': ExPrivKey, 'public': this.PubKeyStr } ));
-        let Encrypted = await crypto.subtle.encrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Buffer );
 
-        localStorage['UserK_' + Suffix] = ABuff2Base64( Encrypted );
-        return Suffix;
+        return ABuff2Base64( await crypto.subtle.encrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Buffer ));
     };
 
     async CreateBlock( parentIdx, data, parentId )
@@ -249,7 +246,6 @@ class User
         //逐层添加区块，以后加分叉
         console.log( InChains );
         while( Queue )
-        //for( let i = 0; i++ < 5; )
         {
             let CurBlock = Queue.splice( 0, 1 )[0];
             console.log( Queue.length, CurBlock );
@@ -267,7 +263,6 @@ class User
                 //console.log( follow );
             }
         }
-        console.log( 'GetChainBranch', this.Name, Branch );
         return Branch;
     };
 
