@@ -3,7 +3,6 @@ class Block
 {
     constructor( index, data, prevId, id, content )
     {
-        //console.log( index, data, prevId );
         this.Index = index;
         if( id )    // for rebuild
         {
@@ -14,16 +13,15 @@ class Block
         let TimeStr = new Date().Format();
         this.id = '';
         this.Content = [index, TimeStr, data, prevId || ''].join( '\n' );
-        let me = this;
         return ( async () =>
         {
-            let hash = await Hash( me.Content, 'SHA-1' )
-            me.Hash = ABuff2Base64( hash );
-            if( me.Index === 0 )
+            let hash = await Hash( this.Content, 'SHA-1' )
+            this.Hash = ABuff2Base64( hash );
+            if( this.Index === 0 )
             {
-                me.Id = me.Hash;
+                this.id = this.Hash;
             }
-            return me;
+            return this;
         } )();
     };
 
@@ -32,24 +30,29 @@ class Block
         return { Id: this.Id, Content: this.Content, Index: this.Index };
     };
 
-    async ChkRoot()   //根区块的 Id 是哈希值，后续区块是签名值，验证方式不同。
+    async ChkRoot()
     {
-        let Id = this.Id;
         let hash = await Hash( this.Content, 'SHA-1' );
-        return Id == ABuff2Base64( hash );
+        return this.Id == ABuff2Base64( hash );
     };
 
-    GetPrevId()
+    get PrevId()
     {
-        console.assert( this.Index != 0 );
-        let Lines = this.Content.split( '\n' );
-        return Lines[4];
+        if( this.Index > 0 )
+        {
+            return this.GetContentLns( 4 )[0];
+        }
     };
 
-    GetOwnerId()
+    get OwnerId()
+    {
+        return this.GetContentLns( 3 )[0];
+    };
+
+    GetContentLns( ...idxes )
     {
         let Lines = this.Content.split( '\n' );
-        return Lines[3];
+        return idxes.map( idx => Lines[idx] );
     };
 
     async ChkFollow( pubKeyS )
@@ -69,14 +72,13 @@ class BlockChain
 {
     constructor( name, firstOwner )
     {
-        this.Name = name;
-        let me = this;
         return ( async () =>
         {
-            let FirstBlock = await new Block( 0, [name, firstOwner].join( '\n' ));
-            me.Blocks = [FirstBlock];
-            me.Id = FirstBlock.Id;
-            return me;
+            this.FirstBlock = await new Block( 0, [name, firstOwner].join( '\n' ));
+            return this;
         } )();
     };
+
+    get Id() { return this.FirstBlock.Id; }
+    get Name() { return this.FirstBlock.GetContentLns( 2 )[0]; };
 }

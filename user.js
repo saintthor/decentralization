@@ -10,10 +10,7 @@ function Base642ABuff( b64 )
 {
     let s = atob( b64 );
     let ua8 = new Uint8Array( s.length );
-    for( let l = s.length; l-- > 0; )
-    {
-        ua8[l] = s.charCodeAt( l );
-    }
+    s.split( '' ).forEach(( c, i ) => ua8[i] = c.charCodeAt( 0 ));
     return ua8;
 }
 
@@ -45,17 +42,6 @@ function UA2Str( ua )
     return Rslt;
 }
 
-function Xor( ab0, ab1 )
-{
-    let ua0 = new Uint8Array( ab0 );
-    let ua1 = new Uint8Array( ab1 );
-    for( let i = 0; i < ab0.byteLength; i++ )
-    {
-        ua0[i] ^= ua1[i];
-    }
-    return ua0;
-}
-
 async function Hash( raw, hashName, times )
 {
     times = times || 1
@@ -72,29 +58,28 @@ class User
     constructor( keys )
     {
         this.OwnChains = new Map();
-        this.LocalBlocks = {};
+        this.LocalBlocks = new Map();
         this.BlackList = [];
         this.Peers = new Map();
-        let me = this;
         return ( async () =>
         {
             if( keys )  //load user from imported keys.
             {
-                me.PubKeyStr = keys.public;
-                me.PubKey = await crypto.subtle.importKey( "raw", Base642ABuff( keys.public ),
+                this.PubKeyStr = keys.public;
+                this.PubKey = await crypto.subtle.importKey( "raw", Base642ABuff( keys.public ),
                                     { name: "ECDSA", namedCurve: "P-256", }, false, ["verify"]);
-                me.PriKey = await crypto.subtle.importKey( "jwk", keys.private,
+                this.PriKey = await crypto.subtle.importKey( "jwk", keys.private,
                                     { name: "ECDSA", namedCurve: "P-256", }, false, ["sign"] );
             }
             else        //new
             {
                 let key = await crypto.subtle.generateKey( { name: "ECDSA", namedCurve: "P-256", }, true, ["sign", "verify"] );
                 let raw = await crypto.subtle.exportKey( "raw", key.publicKey );
-                me.PubKey = key.publicKey;
-                me.PriKey = key.privateKey;
-                me.PubKeyStr = ABuff2Base64( raw );
+                this.PubKey = key.publicKey;
+                this.PriKey = key.privateKey;
+                this.PubKeyStr = ABuff2Base64( raw );
             }
-            return me;
+            return this;
         } )();
     };
 
@@ -103,13 +88,12 @@ class User
     async Sign( s, pswd )
     {
         let ua8 = Base642ABuff( s );
-        let sign = await crypto.subtle.sign( { name: "ECDSA", hash: { name: "SHA-1" }, }, this.PriKey, ua8 );
-        return ABuff2Base64( sign );
+        return ABuff2Base64( await crypto.subtle.sign( { name: "ECDSA", hash: { name: "SHA-1" }, }, this.PriKey, ua8 ));
     };
 
     static async Verify( sig, data, pubKeyS )
     {
-        console.log( 'Verify', this, sig, data, pubKeyS );
+        //console.log( 'Verify', this, sig, data, pubKeyS );
         let pubK = await crypto.subtle.importKey( "raw", Base642ABuff( pubKeyS ),
                                 { name: "ECDSA", namedCurve: "P-256", }, false, ["verify"] )
         return crypto.subtle.verify( { name: "ECDSA", hash: { name: "SHA-1" }, }, pubK, Base642ABuff( sig ), data );
@@ -141,60 +125,45 @@ class User
         return ABuff2Base64( await crypto.subtle.encrypt( { name: 'AES-CBC', iv: h512.slice( 48, 64 ) }, CBCKey, Buffer ));
     };
 
-    async CreateBlock( parentIdx, data, parentId )
+    async CreateBlock( prevIdx, data, prevId )
     {
-        let block = await new Block( parentIdx + 1, data, parentId );
+        let block = await new Block( prevIdx + 1, data, prevId );
         block.Id = await this.Sign( block.Hash );
         return block;
     };
 
+    GetBlock( blockId )
+    {
+        return this.LocalBlocks.get( blockId );
+    };
+
     FindRoot( blockId )
     {
-        let Lines = this.LocalBlocks[blockId].Content.split( '\n' );
-        if( Lines[0] == 0 )
+        for( let block = this.LocalBlocks.get( blockId ); block; block = this.LocalBlocks.get( blockId ))
         {
-            return { Id: blockId, Name: Lines[2] };
+            let [idx, name, prevId] = block.GetContentLns( 0, 2, 4 );
+            if( idx == 0 )
+            {
+                return { Id: blockId, Name: name };
+            }
+            blockId = prevId;
         }
-        return this.FindRoot( Lines[4] );
     };
 
     async RcvBlock( block )
     {
-        if( this.LocalBlocks[block.Id] )
+        //console.log( 'RcvBlock', this.Name, block );
+        if( this.LocalBlocks.has( block.Id ))
         {
-            if( this.LocalBlocks[block.Id].Content !== block.Content )
+            if( this.LocalBlocks.get( block.Id ).Content !== block.Content )
             {
                 throw "bad block data.";
             }
             return;
         }
 
-        let Lines = block.Content.split( '\n' );
-        if( Lines[0] > '0' )
-        {
-            let PrevBlock = this.LocalBlocks[Lines[4]];
-            let PrevLines = PrevBlock.Content.split( '\n' );
-            if( this.BlackList.filter( uid => uid == PrevLines[3] ).length > 0 )
-            {
-                if( this.Id != PrevLines[3] )
-                {
-                    throw "sender in blacklist.";
-                }
-                return;
-            }
-            if( !this.ChkTail( PrevBlock ))
-            {
-                this.BlackList.push( PrevLines[3] );
-                if( this.Id != PrevLines[3] )
-                {
-                    throw "double spending."
-                }
-                return;
-            }
-        }
-
         let RecvBlock = new Block( block.Index, 0, 0, block.Id, block.Content );
-        if( block.Content[0] === '0' )
+        if( block.Index == 0 )
         {
             if( !await RecvBlock.ChkRoot())
             {
@@ -203,24 +172,44 @@ class User
         }
         else
         {
-            let prevId = RecvBlock.GetPrevId();
-            let Prev = prevId ? this.LocalBlocks[prevId] : null;
+            let Prev = this.LocalBlocks.get( RecvBlock.PrevId );
             if( !Prev )
             {
                 throw "previous block not found.";
             }
-            let PrevBlock = new Block( Prev.Index, 0, 0, Prev.Id, Prev.Content );
-            console.log( prevId, PrevBlock );
-            let prevOwnerId = PrevBlock.GetOwnerId();    // Id is PubKeyStr
-            if( !await RecvBlock.ChkFollow( prevOwnerId ))
+            if( !await RecvBlock.ChkFollow( Prev.OwnerId ))
             {
                 throw "verify failed."
             }
         }
-        let NewBlock = this.LocalBlocks[block.Id] = RecvBlock;
+
+        if( block.Index > 0 )
+        {
+            let PrevBlock = this.LocalBlocks.get( RecvBlock.PrevId );
+            let PrevOwner = PrevBlock.OwnerId;
+            if( this.BlackList.some( uid => uid == PrevOwner ))
+            {
+                if( this.Id != PrevOwner )
+                {
+                    throw "sender in blacklist.";
+                }
+                return;
+            }
+            if( !this.ChkTail( PrevBlock ))
+            {
+                this.BlackList.push( PrevOwner );
+                if( this.Id != PrevOwner )
+                {
+                    throw "double spending."
+                }
+                return;
+            }
+        }
+
+        this.LocalBlocks.set( block.Id, RecvBlock );
         let Root = this.FindRoot( block.Id );
-        NewBlock.ChainId = Root.Id;
-        if( Lines[3] === this.Id )
+        RecvBlock.ChainId = Root.Id;
+        if( RecvBlock.OwnerId === this.Id )
         {
             this.OwnChains.set( Root.Id, Root );
         }
@@ -233,48 +222,28 @@ class User
     GetChainBranch( chainid )
     {
         let Branch = [];
-        let Queue = [this.LocalBlocks[chainid]];
+        let Queue = [this.LocalBlocks.get( chainid )];
         let Index = 0;
         let InChains = [];
-        for( let id in this.LocalBlocks )
-        {
-            if( this.LocalBlocks[id].ChainId == chainid )
-            {
-                InChains.push( this.LocalBlocks[id] );
-            }
-        }
+        [...this.LocalBlocks.values()].filter( b => b.ChainId == chainid ).forEach( b => InChains.push( b ));
         //逐层添加区块，以后加分叉
         console.log( InChains );
-        while( Queue )
+        while( Queue.length > 0 )
         {
             let CurBlock = Queue.splice( 0, 1 )[0];
-            console.log( Queue.length, CurBlock );
+            //console.log( Queue.length, CurBlock );
             if( !CurBlock )
             {
                 break;
             }
             Branch.push( CurBlock );
-            let Follows = InChains.filter( b => b.Index == CurBlock.Index + 1 &&
-                                                b.Content.split( '\n' )[4] == CurBlock.Id );
-            //console.log( CurBlock, Follows );
-            for( let follow of Follows )
-            {
-                Queue.push( follow );
-                //console.log( follow );
-            }
+            InChains.filter( b => b.Index == CurBlock.Index + 1 && b.PrevId == CurBlock.Id ).forEach( f => Queue.push( f ));
         }
         return Branch;
     };
 
     ChkTail( block )
     {
-        for( let id in this.LocalBlocks )
-        {
-            if( this.LocalBlocks[id].Content.split( '\n' )[4] == block.Id )
-            {
-                return false;
-            }
-        }
-        return true;
+        return ![...this.LocalBlocks.values()].find( b => b.PrevId == block.Id );
     };
 }
