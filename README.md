@@ -57,3 +57,8 @@ Randomly divide the OBBs into multiple groups. Each user may join some groups an
 This repo is for educational and demonstration purposes.
 
 There are two license files. The main file is the BSD 2-Clause License, and the other describes the details of the patent licenses.
+
+The real code should run on a peer-to-peer network. On each peer there may be some users and a user can connect to multiple peers. Each user owns some private blockchains. They regard each blockchain as an object (NFT) and can trasfer them to others freely.
+
+To run on a real P2P network, the method Peer.Broadcast in peer.js should be overloaded to send messages to neighbors via network protocols. The current code here is simplyfied for [the single page demo](https://acc.cyclic.app/play_en.html).
+
