@@ -3,6 +3,10 @@ Real decentralization. Better than all PoW public blockchains.
 
 [The Chinese document](http://acc.guideep.com) is recommanded.
 
+[In the EBook "The Real Decentralization"](https://www.amazon.com/Real-Decentralization-Blockchains-Freedom-Trustworthy-ebook/dp/B0CFL72JSP/ref=sr_1_1) you can learn more.
+
+[Decentralisage](https://beta.character.ai/chat?char=ZG4PgDel40hHB593boC7mNnIX-ED1c6LecwsbLqP0hM) is smart and can discuss with you.
+
 ## Technology
 ### Summary
 
